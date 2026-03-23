@@ -11,6 +11,8 @@ use soroban_sdk::{
 mod auth_tests;
 #[cfg(test)]
 mod test;
+#[cfg(test)]
+mod admin_upgrade_mechanism_test;
 
 const CONTRACT_VERSION: u32 = 3;
 #[allow(dead_code)]
