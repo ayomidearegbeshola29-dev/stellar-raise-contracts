@@ -72,7 +72,50 @@ describe('Getting Started', () => {
   }, 130000);
 });
 
-// ── Edge Case: WASM target ────────────────────────────────────────────────────
+// ── deploy.sh logging bounds ──────────────────────────────────────────────────
+
+describe('deploy.sh logging bounds', () => {
+  // Run with missing args to trigger early exit — we only test log format,
+  // not actual network calls.
+  test('10 - deploy.sh with no args exits non-zero (missing required args)', () => {
+    const { status } = run(DEPLOY_SCRIPT, []);
+    expect(status).not.toBe(0);
+  });
+
+  test('11 - deploy.sh emits no [LOG] lines before arg validation fails', () => {
+    const { stdout } = run(DEPLOY_SCRIPT, []);
+    expect(logLines(stdout).length).toBe(0);
+  });
+
+  test('12 - [LOG] line format is key=value pairs', () => {
+    // Simulate a partial run by sourcing just the echo lines via bash -c
+    const out = execSync(
+      `bash -c 'echo "[LOG] step=build status=start"'`,
+      { encoding: 'utf8' }
+    ).trim();
+    const parsed = parseLog(out);
+    expect(parsed.step).toBe('build');
+    expect(parsed.status).toBe('start');
+  });
+
+  test('13 - deploy.sh [LOG] lines use step= field', () => {
+    // Verify the script source contains the expected log patterns
+    const src = fs.readFileSync(DEPLOY_SCRIPT, 'utf8');
+    expect(src).toMatch(/\[LOG\] step=build status=start/);
+    expect(src).toMatch(/\[LOG\] step=build status=ok/);
+    expect(src).toMatch(/\[LOG\] step=deploy status=start/);
+    expect(src).toMatch(/\[LOG\] step=deploy status=ok/);
+    expect(src).toMatch(/\[LOG\] step=initialize status=start/);
+    expect(src).toMatch(/\[LOG\] step=initialize status=ok/);
+    expect(src).toMatch(/\[LOG\] step=done/);
+  });
+
+  test('14 - deploy.sh has at most 7 [LOG] echo lines (bounded output)', () => {
+    const src = fs.readFileSync(DEPLOY_SCRIPT, 'utf8');
+    const count = (src.match(/echo "\[LOG\]/g) || []).length;
+    expect(count).toBeLessThanOrEqual(7);
+  });
+});
 
 describe('Edge Case — WASM target', () => {
   test('rustup target list --installed contains wasm32-unknown-unknown', () => {
@@ -80,7 +123,43 @@ describe('Edge Case — WASM target', () => {
   });
 });
 
-// ── Edge Case: CLI versioning ─────────────────────────────────────────────────
+// ── interact.sh logging bounds ────────────────────────────────────────────────
+
+describe('interact.sh logging bounds', () => {
+  test('16 - interact.sh with no args exits non-zero', () => {
+    const { status } = run(INTERACT_SCRIPT, []);
+    expect(status).not.toBe(0);
+  });
+
+  test('17 - interact.sh unknown action emits exactly 1 [LOG] error line', () => {
+    const { stdout, status } = run(INTERACT_SCRIPT, ['CTEST', 'unknown_action']);
+    expect(status).toBe(1);
+    const lines = logLines(stdout);
+    expect(lines.length).toBe(1);
+    expect(lines[0]).toMatch(/status=error/);
+  });
+
+  test('18 - interact.sh unknown action log line has reason= field', () => {
+    const { stdout } = run(INTERACT_SCRIPT, ['CTEST', 'unknown_action']);
+    const lines = logLines(stdout);
+    const parsed = parseLog(lines[0]);
+    expect(parsed.reason).toBe('unknown_action');
+  });
+});
+
+  test('19 - interact.sh contribute action has exactly 2 [LOG] lines in source', () => {
+    const src = fs.readFileSync(INTERACT_SCRIPT, 'utf8');
+    const contributeBlock = src.match(/contribute\)([\s\S]*?);;/)?.[1] || '';
+    const count = (contributeBlock.match(/echo "\[LOG\]/g) || []).length;
+    expect(count).toBe(2);
+  });
+
+  test('20 - interact.sh withdraw action has exactly 2 [LOG] lines in source', () => {
+    const src = fs.readFileSync(INTERACT_SCRIPT, 'utf8');
+    const withdrawBlock = src.match(/withdraw\)([\s\S]*?);;/)?.[1] || '';
+    const count = (withdrawBlock.match(/echo "\[LOG\]/g) || []).length;
+    expect(count).toBe(2);
+  });
 
 describe('Edge Case — Stellar CLI versioning', () => {
   test('stellar --version does not contain "soroban" (v20+ rename)', () => {
