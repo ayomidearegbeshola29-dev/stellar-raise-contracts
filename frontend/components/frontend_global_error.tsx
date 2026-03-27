@@ -46,6 +46,80 @@ export class TransactionError extends Error {
 }
 
 // ---------------------------------------------------------------------------
+// Logging bounds (scripts, observability, main-thread safety)
+// ---------------------------------------------------------------------------
+
+/**
+ * @title Maximum UTF-16 code units — classification haystack
+ * @notice Caps `name` + `message` concatenation before keyword scan.
+ * @custom:security Limits CPU and memory from pathological megabyte error strings;
+ *                 keywords beyond this window are ignored (heuristic may miss edge cases).
+ */
+export const MAX_CLASSIFICATION_INPUT_CHARS = 8192;
+
+/**
+ * @title Maximum UTF-16 code units — `ErrorReport.message`
+ * @notice Bounds telemetry / `onError` payload size for log shippers and CI scripts.
+ */
+export const MAX_REPORT_MESSAGE_CHARS = 4096;
+
+/**
+ * @title Maximum UTF-16 code units — stack trace in dev reports
+ * @custom:security Still dev-only in [`buildErrorReport`]; cap prevents huge stacks from DOM/JSON.
+ */
+export const MAX_REPORT_STACK_CHARS = 16384;
+
+/**
+ * @title Maximum UTF-16 code units — React component stack in dev reports
+ */
+export const MAX_REPORT_COMPONENT_STACK_CHARS = 8192;
+
+/**
+ * @title Maximum UTF-16 code units — dev-only `<pre>` body in fallback UI
+ * @custom:security Text node only (no `dangerouslySetInnerHTML`); cap keeps layout stable.
+ */
+export const MAX_DISPLAY_MESSAGE_CHARS = 2000;
+
+/**
+ * @title Maximum UTF-16 code units — `ErrorReport.errorName`
+ */
+export const MAX_ERROR_NAME_CHARS = 256;
+
+/**
+ * @title Maximum UTF-16 code units — `String(unknown)` when normalising throwables
+ */
+export const MAX_THROWN_VALUE_STRING_CHARS = 4096;
+
+/**
+ * @notice Truncates to at most `maxCodeUnits` UTF-16 code units, appending an ellipsis when trimmed.
+ * @param s              Source string.
+ * @param maxCodeUnits   Inclusive cap; `<= 0` yields empty string.
+ * @dev Not grapheme-cluster aware; sufficient for logging and script-friendly bounds.
+ * @custom:security Prevents unbounded string retention in memory, DOM, and serialised reports.
+ */
+export function truncateForBounds(s: string, maxCodeUnits: number): string {
+  if (maxCodeUnits <= 0) {
+    return '';
+  }
+  if (s.length <= maxCodeUnits) {
+    return s;
+  }
+  if (maxCodeUnits === 1) {
+    return '\u2026';
+  }
+  return `${s.slice(0, maxCodeUnits - 1)}\u2026`;
+}
+
+/**
+ * @notice Lowercased, length-bounded haystack for contract-keyword heuristic matching.
+ * @param error Normalised `Error` instance.
+ */
+export function boundedClassificationHaystack(error: Error): string {
+  const raw = `${error.name} ${error.message}`;
+  return truncateForBounds(raw, MAX_CLASSIFICATION_INPUT_CHARS).toLowerCase();
+}
+
+// ---------------------------------------------------------------------------
 // Error classification helpers
 // ---------------------------------------------------------------------------
 
@@ -88,7 +162,7 @@ function isSmartContractError(error: Error): boolean {
   ) {
     result = true;
   } else {
-    const haystack = `${error.name} ${error.message}`.toLowerCase();
+    const haystack = boundedClassificationHaystack(error);
     result = CONTRACT_KEYWORDS.some((kw) => haystack.includes(kw));
   }
   _classificationCache.set(error, result);
@@ -122,12 +196,21 @@ function buildErrorReport(
 ): ErrorReport {
   const isDev = process.env.NODE_ENV !== 'production';
   return {
-    message: error.message,
-    stack: isDev ? error.stack : undefined,
-    componentStack: isDev ? errorInfo.componentStack : undefined,
+    message: truncateForBounds(error.message, MAX_REPORT_MESSAGE_CHARS),
+    stack:
+      isDev && error.stack
+        ? truncateForBounds(error.stack, MAX_REPORT_STACK_CHARS)
+        : undefined,
+    componentStack:
+      isDev && errorInfo.componentStack
+        ? truncateForBounds(
+            errorInfo.componentStack,
+            MAX_REPORT_COMPONENT_STACK_CHARS,
+          )
+        : undefined,
     timestamp: new Date().toISOString(),
     isSmartContractError: isContract,
-    errorName: error.name,
+    errorName: truncateForBounds(error.name, MAX_ERROR_NAME_CHARS),
   };
 }
 
@@ -187,6 +270,8 @@ interface BoundaryState {
  *     loops that would waste resources on unrecoverable errors.
  *   - Non-Error thrown values are normalised in getDerivedStateFromError so
  *     componentDidCatch always receives a proper Error object.
+ *   - Logging bounds (`truncateForBounds`, `MAX_*` constants) cap classification,
+ *     reports, and dev UI text so scripts and observability pipelines stay predictable.
  *
  * Lifecycle:
  *   Error thrown → getDerivedStateFromError (state update) →
@@ -236,7 +321,14 @@ export class FrontendGlobalErrorBoundary extends Component<
     const err =
       error instanceof Error
         ? error
-        : new Error(error != null ? String(error) : 'An unexpected error occurred');
+        : new Error(
+            error != null
+              ? truncateForBounds(
+                  String(error),
+                  MAX_THROWN_VALUE_STRING_CHARS,
+                )
+              : 'An unexpected error occurred',
+          );
     return {
       hasError: true,
       error: err,
@@ -334,7 +426,9 @@ export class FrontendGlobalErrorBoundary extends Component<
           {isDev && error && (
             <details style={styles.details}>
               <summary>Error Details (dev only)</summary>
-              <pre style={styles.pre}>{error.message}</pre>
+              <pre style={styles.pre}>
+                {truncateForBounds(error.message, MAX_DISPLAY_MESSAGE_CHARS)}
+              </pre>
             </details>
           )}
           <div style={styles.actions}>
@@ -380,7 +474,9 @@ export class FrontendGlobalErrorBoundary extends Component<
         {isDev && error && (
           <details style={styles.details}>
             <summary>Error Details (dev only)</summary>
-            <pre style={styles.pre}>{error.message}</pre>
+            <pre style={styles.pre}>
+              {truncateForBounds(error.message, MAX_DISPLAY_MESSAGE_CHARS)}
+            </pre>
           </details>
         )}
         <div style={styles.actions}>
