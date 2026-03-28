@@ -6,6 +6,6 @@
 - [ ] Step 2: Update contracts/crowdfund/src/refund_single_token.md to document new optimization tests
 - [x] Step 3: Run `cargo test` to verify all tests pass
 
-- [ ] Step 4: Commit with feat message
+- [x] Step 4: Commit with feat message
 
 Current progress: Steps 1-3 complete (tests passed), proceeding to Step 4 (commit)
