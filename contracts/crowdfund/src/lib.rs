@@ -30,12 +30,11 @@ pub mod stream_processing_optimization;
 pub mod withdraw_event_emission;
 pub mod loop_optimization;
 pub mod security_compliance_automation;
+pub mod security_compliance_validation;
 pub mod security_analytics;
 pub mod conditional_optimization;
 pub mod batch_processing_optimization;
 pub mod state_compression;
-
-pub mod parallel
 
 use crate::reentrancy_guard::{enter_transfer, exit_transfer, protected_transfer};
 
@@ -106,6 +105,9 @@ mod stream_processing_optimization_test;
 #[cfg(test)]
 #[path = "security_compliance_automation.test.rs"]
 mod security_compliance_automation_test;
+#[cfg(test)]
+#[path = "security_compliance_validation.test.rs"]
+mod security_compliance_validation_test;
 #[cfg(test)]
 #[path = "role_based_access.test.rs"]
 mod role_based_access_test;
